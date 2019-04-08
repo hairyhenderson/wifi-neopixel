@@ -119,6 +119,7 @@ void setup() {
   server.on("/fill", handleFill);
   server.on("/rainbow", handleRainbow);
   server.on("/raw", HTTP_POST, handleRaw);
+  server.on("/pixel", handlePixel);
   server.onNotFound(handleNotFound);
 
   server.begin();
@@ -149,15 +150,8 @@ void loop() {
 }
 
 unsigned long parseArgULong(String param, unsigned long def) {
-  String value;
-  if (server.args() > 0) {
-    for (uint8_t i = 0; i < server.args(); i++) {
-      if (server.argName(i) == param) {
-        value = server.arg(i);
-        break;
-      }
-    }
-  }
+  String value = server.arg(param);
+
   unsigned long converted = def;
   if (value.length() > 0) {
     converted = value.toInt();
@@ -167,15 +161,8 @@ unsigned long parseArgULong(String param, unsigned long def) {
 
 // parse an RGB colour param as "RRGGBB" as a hex string. does not support 4-channel (RGBW).
 uint32_t parseArgRGB(String param, uint32_t def) {
-  String value;
-  if (server.args() > 0) {
-    for (uint8_t i = 0; i < server.args(); i++) {
-      if (server.argName(i) == param) {
-        value = server.arg(i);
-        break;
-      }
-    }
-  }
+  String value = server.arg(param);
+
   uint32_t converted = def;
   if (value.length() > 0 < 8) {
     if (value.startsWith("#")) {
@@ -303,6 +290,19 @@ void handleFill() {
   char msg[n];
   snprintf(msg, n, fmt.c_str(), c);
   // colorWipe(c, wait);
+  server.send(200, "text/plain", msg);
+}
+
+void handlePixel() {
+  uint32_t c = parseArgRGB("colour", 0x808080);
+  String s = server.arg("pixel");
+  uint16_t pixel = s.toInt();
+  strip.setPixelColor(pixel, c);
+  strip.show();
+  String fmt = "Set pixel %d #%06X\n";
+  size_t n = fmt.length() + 6;
+  char msg[n];
+  snprintf(msg, n, fmt.c_str(), pixel, c);
   server.send(200, "text/plain", msg);
 }
 
