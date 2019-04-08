@@ -3,13 +3,15 @@
         {
             "name": "Mac",
             "includePath": [
-                "${env:HOME}/Library/Arduino15/packages/esp8266/tools/**",
-                "${env:HOME}/Library/Arduino15/packages/esp8266/hardware/esp8266/2.5.0-beta2/**",
+                "${workspaceFolder}/",
                 "${env:HOME}/Documents/Arduino/libraries/**",
+                "${env:HOME}/Documents/Arduino/libraries/Arduino_NeoPixel/",
+                "${env:HOME}/Documents/Arduino/libraries/ArduinoJson/",
+                "${env:HOME}/Library/Arduino15/packages/esp8266/tools/**",
+                "${env:HOME}/Library/Arduino15/packages/esp8266/hardware/esp8266/2.5.0/**",
                 "/Applications/Arduino.app/Contents/Java/libraries",
                 "/Applications/Arduino.app/Contents/Java/hardware/tools/avr/avr/include",
-                "/Applications/Arduino.app/Contents/Java/hardware/arduino/avr/variants/standard",
-                "${workspaceFolder}"
+                "/Applications/Arduino.app/Contents/Java/hardware/arduino/avr/variants/standard"
             ],
             "defines": [
                 "ARDUINO=100"

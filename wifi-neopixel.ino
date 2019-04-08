@@ -1,8 +1,12 @@
+#define ARDUINOJSON_ENABLE_ARDUINO_STRING 1
+#include <ArduinoJson.h>
+
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
 #include <Adafruit_NeoPixel.h>
+#include <ESP8266HTTPUpdateServer.h>
 
 // TODO: enable these someday... for now they don't work
 // #include <ESPAsyncTCP.h>
@@ -35,6 +39,8 @@
 #define PIN 12
 // #define PIN 2
 
+#define PIXELS 30
+
 // Parameter 1 = number of pixels in strip
 // Parameter 2 = Arduino pin number (most are valid)
 // Parameter 3 = pixel type flags, add together as needed:
@@ -43,7 +49,7 @@
 //   NEO_GRB     Pixels are wired for GRB bitstream (most NeoPixel products)
 //   NEO_RGB     Pixels are wired for RGB bitstream (v1 FLORA pixels, not v2) 
 //   NEO_RGBW    Pixels are wired for RGBW bitstream (NeoPixel RGBW products)
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(30, PIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(PIXELS, PIN, NEO_GRB + NEO_KHZ800);
 
 // IMPORTANT: To reduce NeoPixel burnout risk, add 1000 uF capacitor across
 // pixel power leads, add 300 - 500 Ohm resistor on first pixel's data input
@@ -57,6 +63,7 @@ const char *ssid = STASSID;
 const char *password = STAPSK;
 
 ESP8266WebServer server(80);
+ESP8266HTTPUpdateServer httpUpdater(true);
 
 #include "sunrise_colours.h"
 
@@ -86,25 +93,59 @@ void setup() {
   colorWipe(strip.Color(0, 128, 0), 10);
   colorWipe(strip.Color(0, 0, 0), 5);
 
-  if (MDNS.begin("esp8266")) {
+  if (MDNS.begin("neopixel")) {
+    // MDNS.addServiceTxt("_autoupdate._http", "_tcp", 80);
+    // MDNS.addServiceTxt("_http", "_tcp", "path", "/update");
+    // MDNS.announce();
+    // MDNS.update();
     Serial.println("MDNS responder started");
+  } else {
+    for (uint8_t i = 0; i < strip.numPixels(); i += 3) {
+      strip.setPixelColor(i, strip.Color(240, 40, 0));
+    }
+    strip.show();
+    delay(1000);
+    ESP.restart();
   }
 
+  httpUpdater.setup(&server);
+
   server.on("/", handleRoot);
+  // server.on("/log", handleLog);
   server.on("/sunrise", handleSunrise);
   server.on("/sunset", handleSunset);
   server.on("/clear", handleClear);
   server.on("/wipe", handleWipe);
+  server.on("/fill", handleFill);
   server.on("/rainbow", handleRainbow);
+  server.on("/raw", HTTP_POST, handleRaw);
   server.onNotFound(handleNotFound);
 
   server.begin();
   Serial.printf("Web server started, open %s in a web browser\n", WiFi.localIP().toString().c_str());
+
+  // MDNS.addService("http", "tcp", 80);
+  // MDNS.addServiceTxt("_autoupdate._http._tcp", 80);
+  // MDNS.addServiceTxt("http","tcp", "path", "/update");
+  MDNS.update();
 }
 
+uint32_t loopCounter = 0;
+
 void loop() {
-  MDNS.update();
+  if (loopCounter >= 1000000) {
+    bool updateResult = MDNS.update();
+    if (!updateResult) {
+      Serial.printf("updateResult false\n");
+    }
+    // bool announceResult = MDNS.announce();
+    // if (!announceResult) {
+    //   Serial.printf("announceResult false\n");
+    // }
+    loopCounter = 0;
+  }
   server.handleClient();
+  loopCounter++;
 }
 
 unsigned long parseArgULong(String param, unsigned long def) {
@@ -137,6 +178,9 @@ uint32_t parseArgRGB(String param, uint32_t def) {
   }
   uint32_t converted = def;
   if (value.length() > 0 < 8) {
+    if (value.startsWith("#")) {
+      value = value.substring(1);
+    }
     converted = strtol(value.c_str(), 0, 16);
   }
   return converted;
@@ -196,6 +240,10 @@ void handleRoot() {
   server.send(200, "text/html", index_html.c_str());
 }
 
+// void handleLog() {
+//   server.send(200, "text/plain", log)
+// }
+
 void handleNotFound() {
   String u = server.uri();
   size_t n = e404_html.length() + u.length() - 1;
@@ -244,6 +292,60 @@ void handleWipe() {
   snprintf(msg, n, fmt.c_str(), c, wait);
   server.send(202, "text/plain", msg);
   colorWipe(c, wait);
+}
+
+void handleFill() {
+  uint32_t c = parseArgRGB("colour", 0x808080);
+  strip.fill(c);
+  strip.show();
+  String fmt = "Fill #%06X\n";
+  size_t n = fmt.length() + 6;
+  char msg[n];
+  snprintf(msg, n, fmt.c_str(), c);
+  // colorWipe(c, wait);
+  server.send(200, "text/plain", msg);
+}
+
+// test with
+// curl -d '[ 16777215,16777215,16777215,16777215,16777215,16777215,16777215,16777215,16777215,16777215, 16777215,16777215,16777215,16777215,16777215,16777215,16777215,16777215,16777215,16777215, 16777215,16777215,16777215,16777215,16777215,16777215,16777215,16777215,16777215,16777215 ]' -H 'Content-Type: application/json' -X POST http://neopixel.local/raw
+void handleRaw() {
+  unsigned long start = micros();
+  String body = server.arg("plain");
+  // https://arduinojson.org/v6/assistant/ says I need 480 bytes for a 30-element array of longs
+  StaticJsonDocument<JSON_ARRAY_SIZE(PIXELS)> doc;
+  DeserializationError error = deserializeJson(doc, body);
+  if (error) {
+    String err = "bad body: %s";
+    size_t n = err.length() + len(error.c_str());
+    char msg[n];
+    snprintf(msg, n, err.c_str(), error.c_str());
+    server.send(400, "text/plain", msg);
+    return;
+  }
+
+  JsonArray arr = doc.as<JsonArray>();
+  unsigned long end = micros();
+  unsigned long jsonDelta = end - start;
+
+  // unsigned long stripDelta = 0;
+  start = micros();
+  for (uint16_t i = 0; i < PIXELS; i++) {
+    uint32_t c = arr[i];
+    // uint8_t r = (uint8_t) (c >> 16);
+    // uint8_t g = (uint8_t) (c >> 8);
+    // uint8_t b = (uint8_t) c;
+    // uint32_t color = strip.Color(r, g, b);
+    strip.setPixelColor(i, c);
+    strip.show();
+  }
+  end = micros();
+  unsigned long stripDelta = end - start;
+
+  String fmt = "OK, jsonDelta: %dus stripDelta: %dus\n";
+  size_t n = fmt.length() + 32;
+  char msg[n];
+  snprintf(msg, n, fmt.c_str(), jsonDelta, stripDelta);
+  server.send(200, "text/plain", msg);
 }
 
 // void sunset() {
