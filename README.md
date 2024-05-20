@@ -1,3 +1,5 @@
+**This project is archived.** Use [WLED](https://kno.wled.ge) instead.
+
 # wifi-neopixel
 
 ## OTA Updating
